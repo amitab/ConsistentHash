@@ -12,6 +12,8 @@ class Server(object):
             connection, client_address = self.sock.accept()
             print('connection from', client_address)
             print('Recieved: {}'.format(connection.recv()))
+            connection.send({'status': 'ok'})
+            print("Closing connection")
             connection.disconnect()
 
 s = Server('localhost', 5000)

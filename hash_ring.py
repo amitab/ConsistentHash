@@ -12,7 +12,9 @@ class Node(object):
     def send_request(self, data):
         self.sock.connect()
         self.sock.send(data)
+        resp = self.sock.recv()
         self.sock.disconnect()
+        return resp
 
 class HashRing(object):
     def __init__(self):

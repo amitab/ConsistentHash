@@ -9,12 +9,14 @@ class SocketStream(object):
     def recv(self, sock=None):
         data = self.sock.recv(1024)
         while data and data[-1] != 59:
+            print("Recieved: {}".format(data));
             data += self.sock.recv(1024)
         return json.loads(data[:-1].decode())
 
     def send(self, data, sock=None):
         data = json.dumps({'data': data}) + ";"
         self.sock.sendall(data.encode())
+        print("Sent: {}".format(data))
 
     def disconnect(self):
         self.sock.close()

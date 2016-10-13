@@ -1,5 +1,7 @@
 from network import ClientSocket, ServerSocket
+from collections import defaultdict
 import sys
+import time
 
 debug_mode = True
 
@@ -19,12 +21,15 @@ class Node(object):
         self.address = (host, port)
         self.key = key if key else hash(self.address)
         self.status = Node.UNKNOWN
+        self.resp_time = 0.0
+        self.requests = 0
 
     def __hash__(self):
         return self.key
 
     def send_request(self, data):
         resp = None
+        start = time.perf_counter()
         try:
             self.sock.connect()
             self.sock.send(data)
@@ -34,6 +39,12 @@ class Node(object):
             raise err
         finally:
             self.sock.disconnect()
+        end = time.perf_counter()
+
+        # Multi thread?
+        self.requests += 1
+        self.resp_time = self.resp_time + ((end - start) - self.resp_time) / self.requests
+        debug("Stats - tot. req: {}, avg. resp: {}".format(self.requests, self.resp_time))
         return resp
 
 class HashRing(object):
@@ -41,7 +52,7 @@ class HashRing(object):
         self.node_hashes = []
         self.offline = []
         self.cur_invalid = []
-        self.nodes = {}
+        self.nodes = {} # How many threads can remove and add nodes ?
         self.sock = None
 
     def add_server(self, key, node):

@@ -10,7 +10,10 @@ class SocketStream(object):
         data = self.sock.recv(1024)
         while data and data[-1] != 59:
             data += self.sock.recv(1024)
-        return json.loads(data[:-1].decode())
+        try:
+            return json.loads(data[:-1].decode())
+        except json.decoder.JSONDecodeError:
+            return None
 
     def send(self, data, sock=None):
         data = json.dumps(data) + ";"

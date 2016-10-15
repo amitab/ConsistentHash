@@ -18,7 +18,7 @@ class Node(object):
     OFF = 1
     UNKNOWN = 2
 
-    def __init__(self, host, port, key=None):
+    def __init__(self, host, port, key=None, keep_alive=False):
         self.sock = ClientSocket(host, port)
         self.address = (host, port)
         self.key = key if key is not None else hash(self.address)
@@ -26,22 +26,35 @@ class Node(object):
         self.resp_time = 0.0
         self.requests = 0
         self.v_keys = []
+        self.keep_alive = True
 
     def __hash__(self):
         return self.key
+
+    def connect(self):
+        if self.status == Node.ON:
+            return
+        try:
+            self.sock.connect()
+            self.status = Node.ON
+        except Exception as err:
+            self.status = Node.OFF
+            self.sock.disconnect()
+            raise err
 
     def send_request(self, data):
         resp = None
         start = time.perf_counter()
         try:
-            self.sock.connect()
+            self.connect()
             self.sock.send(data)
             resp = self.sock.recv()
         except Exception as err:
             self.status = Node.OFF
             raise err
         finally:
-            self.sock.disconnect()
+            if not self.keep_alive:
+                self.sock.disconnect()
         end = time.perf_counter()
 
         # Multi threaded access
@@ -239,9 +252,9 @@ class HashRing(Server):
 
 if __name__ == '__main__':
     h = HashRing(sys.argv[1], int(sys.argv[2]))
-    n1 = Node('localhost', 5000, 0)
-    n2 = Node('localhost', 5001, 180)
-    n3 = Node('localhost', 5002, 270)
+    n1 = Node('localhost', 5000, 0, keep_alive=True)
+    n2 = Node('localhost', 5001, 180, keep_alive=True)
+    n3 = Node('localhost', 5002, 270, keep_alive=True)
 
     h.add_server(0, n1)
     h.add_server(180, n2)

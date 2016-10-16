@@ -1,9 +1,9 @@
-from network import ClientSocket, ServerSocket
+from network import ServerSocket
 from server import Server
-from collections import defaultdict
 import sys
 import time
 import threading
+from client import Node, Client
 
 debug_mode = True
 
@@ -12,60 +12,6 @@ def debug(text):
     if not debug_mode:
         return
     print("[DEBUG] {}".format(text))
-
-class Node(object):
-    ON = 0
-    OFF = 1
-    UNKNOWN = 2
-
-    def __init__(self, host, port, key=None, keep_alive=False):
-        self.sock = ClientSocket(host, port)
-        self.address = (host, port)
-        self.key = key if key is not None else hash(self.address)
-        self.status = Node.UNKNOWN
-        self.resp_time = 0.0
-        self.requests = 0
-        self.v_keys = []
-        self.keep_alive = True
-
-    def __hash__(self):
-        return self.key
-
-    def connect(self):
-        if self.status == Node.ON:
-            return
-        try:
-            self.sock.connect()
-            self.status = Node.ON
-        except Exception as err:
-            self.status = Node.OFF
-            self.sock.disconnect()
-            raise err
-
-    def send_request(self, data):
-        resp = None
-        start = time.perf_counter()
-        try:
-            self.connect()
-            self.sock.send(data)
-            resp = self.sock.recv()
-        except Exception as err:
-            self.status = Node.OFF
-            raise err
-        finally:
-            if not self.keep_alive:
-                self.sock.disconnect()
-        end = time.perf_counter()
-
-        # Multi threaded access
-        self.requests += 1
-        self.resp_time = self.resp_time + ((end - start) - self.resp_time) / self.requests
-        debug("Stats - tot. req: {}, avg. resp: {}".format(self.requests, self.resp_time))
-        return resp
-
-    def register_v_key(self, key):
-        # Multi threaded access
-        self.v_keys.append(key)
 
 # Default works as an angular hash
 class HashRing(Server):
@@ -92,24 +38,28 @@ class HashRing(Server):
             time.sleep(10)
             debug("Running Scale")
             # Multi threaded access
-            num = sum([node.resp_time * node.requests for node in self.nodes])
-            den = sum([node.requests for node in self.nodes])
+            num = sum([node.resp_time * node.requests for node in self.nodes if node.status != Client.OFF])
+            den = sum([node.requests for node in self.nodes if node.status != Client.OFF])
             if den == 0:
-                return
+                continue
             avg_resp = num / den
+            print("AVG RESP TIME {}".format(avg_resp))
 
             maidens = []
             knights = []
             for node in self.nodes:
-                if node.resp_time > avg_resp * 1.25:
-                    debug("Node {} requires scaling".format(node.key))
-                    maidens.append(node)
-                else:
-                    knights.append(node)
+                if node.status == Client.ON and node.requests > 0:
+                    print("Node {} response time {}".format(node.key, node.resp_time))
+                    if node.resp_time > avg_resp * 1.25:
+                        debug("Node {} requires scaling".format(node.key))
+                        maidens.append(node)
+                    elif node.resp_time < avg_resp and not node.has_max_scale():
+                        knights.append(node)
+                node.reset_stats()
 
             for maiden in maidens:
                 if not knights:
-                    return
+                    break
                 if maiden.v_keys:
                     debug("Node {} requires scale down".format(maiden.key))
                     self.remove_all_virtual_nodes(maiden)
@@ -194,29 +144,17 @@ class HashRing(Server):
             yield (idx + i) % len(self.hashes)
 
     def _send_request(self, key, data):
-        # Multi threaded access
-        invalid = []
-        resp = None
-
         for i in self._find_server(key):
             node = self.nodes[self.ring[self.hashes[i]]]
-            if node.status == Node.OFF:
+            if node.status == Client.OFF:
                 continue
             debug("Trying server {} at {}".format(self.hashes[i], node.address))
             try:
-                resp = node.send_request(data)
-                break
+                return node.send_request(data)
             except Exception as err:
-                # Multi threaded access
-                self.remove_all_virtual_nodes(node)
-                invalid.append(node.key)
                 debug("Server {} not avaliable: {}".format(self.hashes[i], err))
 
-        # Multi threaded access
-        self.deactivate_servers(invalid)
-        if not resp:
-            raise Exception("No available server.")
-        return resp
+        raise Exception("No available server.")
 
     def send_request(self, key, data):
         # Multi threaded access
@@ -241,6 +179,29 @@ class HashRing(Server):
         while True:
             time.sleep(5)
             debug("Running Quarantine")
+
+            offline = []
+            online = []
+
+            for h in self.hashes:
+                node = self.nodes[self.ring[h]]
+                if node.key != h or node.status in (Client.ON, Client.UNKNOWN,):
+                    continue
+                debug("Node {} is now offline".format(h))
+                offline.append(h)
+
+            for h in self.offline:
+                node = self.nodes[self.ring[h]]
+                try:
+                    node.connect()
+                    debug("Node {} is now online".format(h))
+                    online.append(h)
+                except:
+                    pass
+
+            self.hashes = [h for h in self.hashes if h not in offline] + online
+            self.hashes.sort()
+            self.offline = [h for h in self.offline if h not in online] + offline
 
     def handle_command(self, data):
         return self.send_request(data['key'], data)

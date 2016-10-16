@@ -2,6 +2,7 @@ from network import ServerSocket
 import sys
 import time
 import threading
+import json
 
 lag = 0
 
@@ -24,8 +25,8 @@ class Server(object):
                 sock.send(resp)
                 print('Sent: {}'.format(resp))
                 req = sock.recv()
-        except Exception as err:
-            print(err)
+        except json.decoder.JSONDecodeError:
+            # Disconnection from the other end
             pass
         finally:
             print("Closing connection")
@@ -38,6 +39,7 @@ class Server(object):
             print('connection from', client_address)
 
             thd = threading.Thread(name=client_address, target=Server.handle_client, args=(self, connection,))
+            print("Starting thread {}".format(client_address))
             self.con.append(thd)
             thd.start()
 

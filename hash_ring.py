@@ -4,6 +4,7 @@ import sys
 import time
 import threading
 from client import Node, Client
+from lock import RWLock
 
 debug_mode = True
 
@@ -31,16 +32,20 @@ class HashRing(Server):
         self.scale_thread = None
         self.q_thread = None
 
+        self.rw_lock = RWLock()
+
         super(HashRing, self).__init__(host, port)
 
     def scale(self):
         while True:
             time.sleep(10)
             debug("Running Scale")
+            self.rw_lock.writer_acquire()
             # Multi threaded access
             num = sum([node.resp_time * node.requests for node in self.nodes if node.status != Client.OFF])
             den = sum([node.requests for node in self.nodes if node.status != Client.OFF])
             if den == 0:
+                self.rw_lock.writer_release()
                 continue
             avg_resp = num / den
             print("AVG RESP TIME {}".format(avg_resp))
@@ -71,17 +76,14 @@ class HashRing(Server):
                     key = ((self.hash_max if idx == 0 else self.hashes[idx]) + self.hashes[prev_idx]) / 2
                     self.add_virtual_node(key, knight)
 
+            self.rw_lock.writer_release()
+
     def add_virtual_node(self, key, node):
         # Multi threaded access
         self.hashes.append(key)
         self.hashes.sort()
         self.ring[key] = self.ring[node.key]
         node.register_v_key(key)
-
-    def remove_virtual_node(self, key):
-        # Multi threaded access
-        self.hashes.remove(key)
-        del self.ring[key]
 
     def remove_all_virtual_nodes(self, node):
         # Multi threaded access
@@ -91,34 +93,24 @@ class HashRing(Server):
         node.v_keys.clear()
 
     def add_server(self, key, node):
+        self.rw_lock.writer_acquire()
         # Multi threaded access
         self.hashes.append(key)
         self.hashes.sort()
         self.ring[key] = len(self.nodes)
         self.nodes.append(node)
+        self.rw_lock.writer_release()
 
     def remove_server(self, key):
+        self.rw_lock.writer_acquire()
         # Multi threaded access
         self.hashes.remove(key)
         del self.nodes[self.ring[key]]
         del self.ring[key]
+        self.rw_lock.writer_release()
         return key
 
-    def deactivate_server(self, key):
-        # Multi threaded access
-        self.hashes.remove(key)
-        self.offline.append(key)
-        return key
-
-    def deactivate_servers(self, keys):
-        # Multi threaded access
-        if not keys:
-            return
-        self.hashes = [h for h in self.hashes if h not in keys]
-        self.offline.extend(keys)
-        return True
-
-    def get_server(self, key):
+    def _get_server(self, key):
         # Multi threaded access
         if key > self.hashes[-1] or key == self.hashes[0]:
             return 0
@@ -139,7 +131,7 @@ class HashRing(Server):
 
     def _find_server(self, key):
         # Multi threaded access
-        idx = self.get_server(key)
+        idx = self._get_server(key)
         for i in range(0, len(self.hashes)):
             yield (idx + i) % len(self.hashes)
 
@@ -159,7 +151,9 @@ class HashRing(Server):
     def send_request(self, key, data):
         # Multi threaded access
         debug("Trying to send {}".format(data))
+        self.rw_lock.reader_acquire()
         resp = self._send_request(key, data)
+        self.rw_lock.reader_release()
         debug("----------------------------------------------------")
         debug(self.hashes)
         debug(self.ring)
@@ -179,6 +173,7 @@ class HashRing(Server):
         while True:
             time.sleep(5)
             debug("Running Quarantine")
+            self.rw_lock.writer_acquire()
 
             offline = []
             online = []
@@ -203,12 +198,14 @@ class HashRing(Server):
             self.hashes.sort()
             self.offline = [h for h in self.offline if h not in online] + offline
 
+            self.rw_lock.writer_release()
+
     def handle_command(self, data):
         return self.send_request(data['key'], data)
 
     def activate(self):
-        #self.start_scale_thread()
-        #self.start_quarantine_thread()
+        self.start_scale_thread()
+        self.start_quarantine_thread()
         super(HashRing, self).activate()
 
 if __name__ == '__main__':

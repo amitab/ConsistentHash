@@ -1,5 +1,6 @@
 from network import ClientSocket
 import time
+import threading
 
 class Client(object):
     ON = 0
@@ -12,13 +13,17 @@ class Client(object):
         self.key = key if key is not None else hash(self.address)
         self.status = Client.UNKNOWN
         self.keep_alive = keep_alive
+        self.sock_lock = threading.Lock()
 
     def __hash__(self):
         return self.key
 
     def connect(self):
+        self.sock_lock.acquire()
         if self.status == Client.ON:
+            self.sock_lock.release()
             return
+
         try:
             self.sock.connect()
             self.status = Client.ON
@@ -26,10 +31,13 @@ class Client(object):
             self.status = Client.OFF
             self.sock.disconnect()
             raise err
+        finally:
+            self.sock_lock.release()
 
     def send_request(self, data):
         resp = None
         try:
+            self.sock_lock.acquire()
             if self.status != Client.ON:
                 self.sock.connect()
                 self.status = Client.ON
@@ -42,6 +50,7 @@ class Client(object):
             if not self.keep_alive:
                 self.sock.disconnect()
                 self.status = Client.OFF
+            self.sock_lock.release()
         return resp
 
 class Node(Client):
@@ -50,6 +59,8 @@ class Node(Client):
         self.requests = 0
         self.v_keys = []
         self.max_scale = max_scale
+        self.stats_lock = threading.Lock()
+        self.scale_lock = threading.Lock()
         super(Node, self).__init__(host, port, key, keep_alive)
 
     def send_request(self, data):
@@ -58,20 +69,29 @@ class Node(Client):
         end = time.perf_counter()
 
         # Multi threaded access
+        self.stats_lock.acquire()
         self.requests += 1
         self.resp_time = self.resp_time + ((end - start) - self.resp_time) / self.requests
         print("Stats - tot. req: {}, avg. resp: {}".format(self.requests, self.resp_time))
+        self.stats_lock.release()
         return resp
 
     def register_v_key(self, key):
         # Multi threaded access
+        self.scale_lock.acquire()
         self.v_keys.append(key)
+        self.scale_lock.release()
 
     def reset_stats(self):
+        self.stats_lock.acquire()
         self.requests = 0
         self.resp_time = 0
+        self.stats_lock.release()
 
     def has_max_scale(self):
-        return len(self.v_keys) >= 2
+        self.scale_lock.acquire()
+        has = len(self.v_keys) >= 2
+        self.scale_lock.release()
+        return has
 
 

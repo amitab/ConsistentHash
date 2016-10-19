@@ -16,7 +16,7 @@ def debug(text):
 
 # Default works as an angular hash
 class HashRing(Server):
-    def __init__(self, host, port, hash_max=360):
+    def __init__(self, host, port max_con=100, refuse=200, hash_max=360):
         self.hash_max = hash_max
 
         # Contains sorted list of keys to get the right server for a request
@@ -34,7 +34,7 @@ class HashRing(Server):
 
         self.rw_lock = RWLock()
 
-        super(HashRing, self).__init__(host, port)
+        super(HashRing, self).__init__(host, port, max_con, refuse)
 
     def scale(self):
         while True:

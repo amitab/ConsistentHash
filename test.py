@@ -1,4 +1,4 @@
-from client import Client
+from .client import Client
 
 n = Client('localhost', 5003)
 n.send_request({'add': [

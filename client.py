@@ -1,4 +1,4 @@
-from network import ClientSocket
+from .network import ClientSocket
 import time
 import threading
 import logging

@@ -1,4 +1,4 @@
-from network import ServerSocket
+from .network import ServerSocket
 import sys
 import time
 import threading

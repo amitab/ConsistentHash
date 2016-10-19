@@ -1,6 +1,7 @@
 import json
 import socket
 import sys
+import logging
 
 class SocketStream(object):
     def __init__(self, sock=None):
@@ -31,7 +32,7 @@ class ServerSocket(SocketStream):
         self.sock.bind(self.address)
         self.sock.listen(1)
 
-        print("Listening on {}:{}".format(self.address[0], self.address[1]))
+        logging.debug("Listening on {}:{}".format(self.address[0], self.address[1]))
 
     def accept(self):
         connection, client_address = self.sock.accept()
@@ -45,5 +46,4 @@ class ClientSocket(SocketStream):
     def connect(self):
         self.sock = socket.socket(socket.AF_INET, socket.SOCK_STREAM)
         self.sock.connect(self.address)
-
 

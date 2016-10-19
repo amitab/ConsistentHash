@@ -4,6 +4,8 @@ import time
 import threading
 import json
 from concurrent.futures import ThreadPoolExecutor
+import logging
+import argparse
 
 lag = 0
 
@@ -28,16 +30,16 @@ class Server(object):
         try:
             req = sock.recv()
             while req:
-                print('Recieved: {}'.format(req))
+                logging.debug('Recieved: {}'.format(req))
                 resp = self.handle_command(req)
                 sock.send(resp)
-                print('Sent: {}'.format(resp))
+                logging.debug('Sent: {}'.format(resp))
                 req = sock.recv()
         except json.decoder.JSONDecodeError:
             # Disconnection from the other end
             pass
         finally:
-            print("Closing connection")
+            logging.debug("Closing connection")
             sock.disconnect()
             self.con_lock.acquire()
             self.con -= 1
@@ -48,21 +50,27 @@ class Server(object):
         with ThreadPoolExecutor(max_workers=self.max_con) as executor:
             while True:
                 connection, client_address = self.sock.accept()
-                print('connection from', client_address)
+                logging.debug('connection from {}'.format(client_address))
                 if self.con > self.refuse:
                     connection.send({'msg': 'too many connections'})
                     connection.disconnect()
                     continue
 
                 executor.submit(Server.handle_client, self, connection)
-                print("Starting thread {}".format(client_address))
+                logging.debug("Starting thread {}".format(client_address))
                 self.con_lock.acquire()
                 self.con += 1
                 self.con_lock.release()
 
 if __name__ == '__main__':
-    host = sys.argv[1]
-    port = int(sys.argv[2])
-    lag = int(sys.argv[3])
-    s = Server(host, port)
+    logging.basicConfig(format='%(asctime)s [%(levelname)s] - %(message)s', level=logging.DEBUG)
+
+    parser = argparse.ArgumentParser(description='Run a Hash Ring.')
+    parser.add_argument('-H', '--host', dest='host', type=str, default='localhost', help='Host to run the server on.')
+    parser.add_argument('-p', '--port', dest='port', type=int, default=5003, help='Port to run the server on.')
+    parser.add_argument('-l', '--lag', dest='lag', type=int, default=0, help='Simulate server lag')
+    args = parser.parse_args()
+    lag = args.lag
+
+    s = Server(args.host, args.port)
     s.activate()

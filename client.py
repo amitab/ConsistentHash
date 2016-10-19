@@ -1,6 +1,7 @@
 from network import ClientSocket
 import time
 import threading
+import logging
 
 class Client(object):
     ON = 0
@@ -72,7 +73,7 @@ class Node(Client):
         self.stats_lock.acquire()
         self.requests += 1
         self.resp_time = self.resp_time + ((end - start) - self.resp_time) / self.requests
-        print("Stats - tot. req: {}, avg. resp: {}".format(self.requests, self.resp_time))
+        logging.debug("Node {} Stats - req: {}, resp: {}".format(self.key, self.requests, self.resp_time))
         self.stats_lock.release()
         return resp
 
